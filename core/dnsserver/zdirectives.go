@@ -69,4 +69,7 @@ var Directives = []string{
 	"sign",
 	"view",
 	"nomad",
+	"tailscale",
+	"tsproxy",
+	"tsbind",
 }
