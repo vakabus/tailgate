@@ -61,6 +61,7 @@ var Directives = []string{
 	"secondary",
 	"etcd",
 	"loop",
+	"tsnames",
 	"forward",
 	"grpc",
 	"erratic",
