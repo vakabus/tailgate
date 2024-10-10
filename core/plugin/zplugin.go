@@ -58,6 +58,7 @@ import (
 	_ "github.com/coredns/coredns/plugin/transfer"
 	_ "github.com/coredns/coredns/plugin/tsbind"
 	_ "github.com/coredns/coredns/plugin/tsig"
+	_ "github.com/coredns/coredns/plugin/tsnames"
 	_ "github.com/coredns/coredns/plugin/tsproxy"
 	_ "github.com/coredns/coredns/plugin/view"
 	_ "github.com/coredns/coredns/plugin/whoami"
