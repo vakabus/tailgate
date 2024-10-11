@@ -23,22 +23,20 @@ func setup(c *caddy.Controller) error {
 	// Global instance of the tailscale plugin
 	SetGlobalTailscale(NewTailscalePlugin())
 
-		Tailscale.Client, err = Tailscale.Server.LocalClient()
+	// Wait for the tailscale server to properly initialize
+	log.Info("waiting for tailscale to be ready...")
+	for {
+		status, err := GetGlobalTailscale().Client.StatusWithoutPeers(context.Background())
 		if err != nil {
 			return err
 		}
-
-		for {
-			status, err := Tailscale.Client.Status(context.Background())
-			if err != nil {
-				return err
-			}
-			if status.BackendState == "Running" {
-				break
-			} else {
-				log.Info("waiting for tailscale")
-				time.Sleep(1 * time.Second)
-			}
+		if status.BackendState == "Running" {
+			log.Info("tailscale plugin initialized, running on " + status.Self.DNSName)
+			initialize(c, status)
+			break
+		} else {
+			log.Info("waiting for tailscale")
+			time.Sleep(1 * time.Second)
 		}
 	}
 
