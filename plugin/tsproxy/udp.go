@@ -1,15 +1,11 @@
 package tsproxy
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"time"
-
-	"github.com/coredns/coredns/plugin/pkg/reuseport"
-	"tailscale.com/tsnet"
 )
 
 type UdpProxy struct {
@@ -33,7 +29,7 @@ func NewUdpProxy(srcPort int, dstAddr string, dstPort int) *UdpProxy {
 
 func (proxy *UdpProxy) serve() {
 	// open downstream listener
-	listener, err := reuseport.ListenPacket("udp", fmt.Sprintf(":%d", proxy.srcPort))
+	listener, err := net.ListenUDP("udp", &net.UDPAddr{Port: proxy.srcPort})
 	if err != nil {
 		panic(err)
 	}
@@ -87,15 +83,18 @@ func (proxy *UdpProxy) send(m msg) {
 	up, ok := proxy.upstream[m.addr.String()]
 
 	if !ok {
-		var conn net.Conn
+		var conn *net.UDPConn
 		var err error
-		if proxy.ts == nil {
-			conn, err = net.Dial("udp", proxy.dst)
-		} else {
-			conn, err = proxy.ts.Dial(context.Background(), "udp", proxy.dst)
-		}
+
+		addr, err := net.ResolveUDPAddr("udp", proxy.dst)
 		if err != nil {
-			udpLog.Error("udp dial error", err)
+			udpLog.Errorf("failed to resolve target UDP address '%v' of the proxy: %v", proxy.dst, err)
+			return
+		}
+
+		conn, err = net.DialUDP("udp", nil, addr)
+		if err != nil {
+			udpLog.Errorf("udp dial error: %v", err)
 			return
 		}
 
@@ -116,11 +115,11 @@ func (proxy *UdpProxy) send(m msg) {
 
 type msg struct {
 	data []byte
-	addr net.Addr
+	addr *net.UDPAddr
 }
 
 type downstreamProxy struct {
-	in           net.PacketConn
+	in           *net.UDPConn
 	toUpstream   chan msg
 	toDownstream chan msg
 	quit         chan struct{}
@@ -133,7 +132,7 @@ func (proxy *downstreamProxy) writer() {
 			proxy.in.SetDeadline(time.Now())
 			return
 		case pkt := <-proxy.toDownstream:
-			n, err := proxy.in.WriteTo(pkt.data, pkt.addr)
+			n, _, err := proxy.in.WriteMsgUDP(pkt.data, nil, pkt.addr)
 			if n != len(pkt.data) {
 				udpLog.Errorf("wrote only %d out of %d bytes to downstream", n, len(pkt.data))
 			}
@@ -149,7 +148,7 @@ func (proxy *downstreamProxy) reader() {
 
 	for {
 		buffer := make([]byte, 16*1024)
-		n, addr, err := proxy.in.ReadFrom(buffer)
+		n, _, _, addr, err := proxy.in.ReadMsgUDP(buffer, nil)
 		if n > 0 {
 			proxy.toUpstream <- msg{data: buffer[:n], addr: addr}
 		}
@@ -177,8 +176,8 @@ type upstreamProxy struct {
 	toDownstream      chan msg
 	toUpstream        chan msg
 	quit              chan struct{}
-	conn              net.Conn
-	downstreamAddress net.Addr
+	conn              *net.UDPConn
+	downstreamAddress *net.UDPAddr
 	lastUsed          time.Time
 }
 
@@ -188,7 +187,7 @@ func (proxy *upstreamProxy) reader() {
 	for {
 		proxy.lastUsed = time.Now()
 		buffer := make([]byte, 16*1024)
-		n, err := proxy.conn.Read(buffer)
+		n, _, _, _, err := proxy.conn.ReadMsgUDP(buffer, nil)
 		if n > 0 {
 			proxy.toDownstream <- msg{data: buffer[:n], addr: proxy.downstreamAddress}
 		}
@@ -196,7 +195,7 @@ func (proxy *upstreamProxy) reader() {
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				return
 			}
-			udpLog.Error("upstream UDP reading failed", err)
+			udpLog.Errorf("upstream UDP reading failed: %v", err)
 		}
 	}
 }
@@ -210,7 +209,7 @@ func (proxy *upstreamProxy) writer() {
 			proxy.conn.SetDeadline(time.Now())
 			return
 		case pkt := <-proxy.toUpstream:
-			n, err := proxy.conn.Write(pkt.data)
+			n, _, err := proxy.conn.WriteMsgUDP(pkt.data, nil, nil)
 			if n != len(pkt.data) {
 				udpLog.Errorf("wrote only %d out of %d bytes to upstream", n, len(pkt.data))
 			}
