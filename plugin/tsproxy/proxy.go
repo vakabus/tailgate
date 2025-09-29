@@ -27,7 +27,7 @@ func (proxy *tsproxy) start(channels []channel) {
 		case "tcp":
 			p = NewTcpProxy(channel.myPort, channel.target, channel.targetPort)
 		default:
-			panic("wat " + channel.protocol)
+			panic("Unknown protocol for tsproxy: " + channel.protocol)
 		}
 
 		proxy.proxies = append(proxy.proxies, p)

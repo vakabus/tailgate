@@ -67,5 +67,4 @@ var Directives = []string{
 	"view",
 	"tailscale",
 	"tsproxy",
-	"tsbind",
 }

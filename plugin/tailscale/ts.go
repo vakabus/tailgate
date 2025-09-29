@@ -1,33 +1,30 @@
 package tailscale
 
-import (
-	"net"
+import "tailscale.com/client/tailscale"
 
-	"github.com/coredns/coredns/plugin/pkg/reuseport"
-	"tailscale.com/client/tailscale"
-	"tailscale.com/tsnet"
-)
-
-type TailscaleServer struct {
-	Server *tsnet.Server
+type TailscalePlugin struct {
 	Client *tailscale.LocalClient
 }
 
-func (ts *TailscaleServer) Listen(network string, addr string) (net.Listener, error) {
-	if ts.Server != nil {
-		return ts.Server.Listen(network, addr)
-	} else {
-		return reuseport.Listen(network, addr)
-	}
-}
-
-func (ts *TailscaleServer) ListenPacket(network string, addr string) (net.PacketConn, error) {
-	if ts.Server != nil {
-		return ts.Server.ListenPacket(network, addr)
-	} else {
-		return reuseport.ListenPacket(network, addr)
+func NewTailscalePlugin() *TailscalePlugin {
+	return &TailscalePlugin{
+		Client: &tailscale.LocalClient{},
 	}
 }
 
 // Name implements plugin.Handler.
-func (b *TailscaleServer) Name() string { return "tailscale" }
+func (b *TailscalePlugin) Name() string { return "tailscale" }
+
+var global *TailscalePlugin = nil
+
+func GetGlobalTailscale() *TailscalePlugin {
+	return global
+}
+
+func SetGlobalTailscale(t *TailscalePlugin) {
+	if global != nil {
+		panic("tailscale plugin already initialized")
+	}
+
+	global = t
+}

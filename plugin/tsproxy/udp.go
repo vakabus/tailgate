@@ -23,6 +23,9 @@ func NewUdpProxy(srcPort int, dstAddr string, dstPort int) *UdpProxy {
 	proxy.srcPort = srcPort
 	proxy.dst = fmt.Sprintf("%s:%d", dstAddr, dstPort)
 	proxy.quit = make(chan struct{})
+
+	udpLog.Infof("starting UDP proxy from local port %d to %s", proxy.srcPort, proxy.dst)
+
 	go proxy.serve()
 	return &proxy
 }
