@@ -34,7 +34,7 @@ func (t *Tailscale) Name() string { return "tailscale" }
 // If t.authkey is non-empty, this function uses that key to connect to the Tailnet using a tsnet server
 // instead of connecting to the local tailscaled instance.
 func (t *Tailscale) start() error {
-	if ts.Tailscale == nil {
+	if ts.GetGlobalTailscale() == nil {
 		return fmt.Errorf("tailscale not initialized, can't use 'tsnames' plugin")
 	}
 
@@ -46,7 +46,7 @@ func (t *Tailscale) start() error {
 // This function does not return. If it is unable to read from the IPN Bus, it will continue to retry.
 func (t *Tailscale) watchIPNBus() {
 	for {
-		watcher, err := ts.Tailscale.Client.WatchIPNBus(context.Background(), ipn.NotifyInitialNetMap)
+		watcher, err := ts.GetGlobalTailscale().Client.WatchIPNBus(context.Background(), ipn.NotifyInitialNetMap)
 		if err != nil {
 			log.Info("unable to read from Tailscale event bus, retrying in 1 minute")
 			time.Sleep(1 * time.Minute)

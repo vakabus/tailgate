@@ -29,6 +29,9 @@ func NewTcpProxy(srcPort int, dstAddr string, dstPort int) *TcpProxy {
 	proxy.wg.Add(1)
 	proxy.dst = fmt.Sprintf("%s:%d", dstAddr, dstPort)
 	proxy.quit = make(chan interface{})
+
+	tcpLog.Infof("starting TCP proxy from local port %d to %s", srcPort, proxy.dst)
+
 	go proxy.serve()
 	return &proxy
 }

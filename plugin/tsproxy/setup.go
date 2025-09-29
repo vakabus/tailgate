@@ -14,7 +14,9 @@ var log = clog.NewWithPlugin("tsproxy")
 var tcpLog = clog.NewWithPlugin("tsproxy/tcp")
 var udpLog = clog.NewWithPlugin("tsproxy/udp")
 
-func init() { plugin.Register("tsproxy", setup) }
+func init() {
+	plugin.Register("tsproxy", setup)
+}
 
 func setup(c *caddy.Controller) error {
 	var channels []channel
@@ -52,7 +54,7 @@ func setup(c *caddy.Controller) error {
 
 	proxy := &tsproxy{}
 	c.OnStartup(func() error {
-		if tailscale.Tailscale == nil {
+		if tailscale.GetGlobalTailscale() == nil {
 			return fmt.Errorf("tsproxy: tailscale plugin not initialized")
 		}
 
