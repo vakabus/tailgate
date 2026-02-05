@@ -12,6 +12,7 @@ import (
 
 var log = clog.NewWithPlugin("tsproxy")
 var tcpLog = clog.NewWithPlugin("tsproxy/tcp")
+var tcpProxyLog = clog.NewWithPlugin("tsproxy/tcp_proxy")
 var udpLog = clog.NewWithPlugin("tsproxy/udp")
 
 func init() {
@@ -23,7 +24,7 @@ func setup(c *caddy.Controller) error {
 	for c.Next() {
 		for c.NextBlock() {
 			switch c.Val() {
-			case "udp", "tcp":
+			case "udp", "tcp", "tcp_proxy":
 				protocol := c.Val()
 				args := c.RemainingArgs()
 				if len(args) != 4 && args[1] != "->" {

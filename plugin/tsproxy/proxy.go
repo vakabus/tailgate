@@ -26,6 +26,8 @@ func (proxy *tsproxy) start(channels []channel) {
 			p = NewUdpProxy(channel.myPort, channel.target, channel.targetPort)
 		case "tcp":
 			p = NewTcpProxy(channel.myPort, channel.target, channel.targetPort)
+		case "tcp_proxy":
+			p = NewTcpProxyProxy(channel.myPort, channel.target, channel.targetPort)
 		default:
 			panic("Unknown protocol for tsproxy: " + channel.protocol)
 		}
