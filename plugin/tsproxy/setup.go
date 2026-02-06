@@ -14,6 +14,7 @@ var log = clog.NewWithPlugin("tsproxy")
 var tcpLog = clog.NewWithPlugin("tsproxy/tcp")
 var tcpProxyLog = clog.NewWithPlugin("tsproxy/tcp_proxy")
 var udpLog = clog.NewWithPlugin("tsproxy/udp")
+var httpsRedirectLog = clog.NewWithPlugin("tsproxy/https_redirect")
 
 func init() {
 	plugin.Register("tsproxy", setup)
@@ -24,6 +25,27 @@ func setup(c *caddy.Controller) error {
 	for c.Next() {
 		for c.NextBlock() {
 			switch c.Val() {
+			case "https_redirect":
+				args := c.RemainingArgs()
+				if len(args) != 3 || args[1] != "->" {
+					return fmt.Errorf("unexpected format for https_redirect, expected: https_redirect <listen_port> -> <target_port>")
+				}
+
+				mp, err := strconv.ParseUint(args[0], 10, 16)
+				if err != nil {
+					return fmt.Errorf("invalid numeral for listen port %s", args[0])
+				}
+
+				tp, err := strconv.ParseUint(args[2], 10, 16)
+				if err != nil {
+					return fmt.Errorf("invalid numeral for target port %s", args[2])
+				}
+
+				channels = append(channels, channel{
+					protocol:   "https_redirect",
+					myPort:     int(mp),
+					targetPort: int(tp),
+				})
 			case "udp", "tcp", "tcp_proxy":
 				protocol := c.Val()
 				args := c.RemainingArgs()

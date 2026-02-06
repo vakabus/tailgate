@@ -2,7 +2,6 @@ package tsproxy
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"sync"
 	"time"

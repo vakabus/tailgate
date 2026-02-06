@@ -28,6 +28,8 @@ func (proxy *tsproxy) start(channels []channel) {
 			p = NewTcpProxy(channel.myPort, channel.target, channel.targetPort)
 		case "tcp_proxy":
 			p = NewTcpProxyProxy(channel.myPort, channel.target, channel.targetPort)
+		case "https_redirect":
+			p = NewHttpsRedirect(channel.myPort, channel.targetPort)
 		default:
 			panic("Unknown protocol for tsproxy: " + channel.protocol)
 		}
