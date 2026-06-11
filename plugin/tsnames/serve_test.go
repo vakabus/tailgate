@@ -257,6 +257,49 @@ func TestResolveAAAAIsCNAME(t *testing.T) {
 	testEquals(t, "AAAA record", []string{"::1", "::1"}, aaaas)
 }
 
+// TestResolveCNAMECycle ensures a self-referencing CNAME (or any cycle) does
+// not blow the goroutine stack. Pre-fix this would recurse unboundedly and
+// panic; the depth bound caps the chain at maxCNAMEDepth and returns cleanly.
+func TestResolveCNAMECycle(t *testing.T) {
+	ts := Tailscale{
+		zone: "example.com",
+		entries: map[string]map[string][]string{
+			"loop": {
+				"CNAME": []string{"loop.example.com"},
+			},
+		},
+	}
+
+	msg := dns.Msg{}
+	// If recursion is unbounded this panics with stack overflow before returning.
+	ts.resolveA("loop.example.com", &msg)
+
+	// Each level of the bounded chain appends one CNAME RR. Should be
+	// finite and below a small constant — the exact value is an
+	// implementation detail of maxCNAMEDepth, so just sanity-check the
+	// bound rather than asserting an exact count.
+	if len(msg.Answer) == 0 {
+		t.Errorf("expected at least one CNAME RR before depth limit kicked in, got zero")
+	}
+	if len(msg.Answer) > 32 {
+		t.Errorf("recursion appears unbounded: produced %d answers", len(msg.Answer))
+	}
+}
+
+// TestServeDNSMalformedName ensures a query Name with no separator does not
+// panic on parts[1] index-out-of-bounds.
+func TestServeDNSMalformedName(t *testing.T) {
+	ts := newTS()
+	ts.fall.SetZonesFromArgs(nil)
+
+	for _, name := range []string{"", "bareLabel"} {
+		var msg dns.Msg
+		msg.SetQuestion(name, dns.TypeA)
+		// Should not panic.
+		_, _ = ts.ServeDNS(context.Background(), dnstest.NewRecorder(&test.ResponseWriter{}), &msg)
+	}
+}
+
 func testEquals(t *testing.T, msg string, expected interface{}, received interface{}) {
 
 	if !reflect.DeepEqual(expected, received) {

@@ -52,12 +52,13 @@ func (t *Tailscale) watchIPNBus() {
 			time.Sleep(1 * time.Minute)
 			continue
 		}
-		defer watcher.Close()
 
 		for {
 			n, err := watcher.Next()
 			if err != nil {
-				// If we're unable to read, then close watcher and reconnect
+				// If we're unable to read, then close watcher and reconnect.
+				// Don't `defer` this — the outer loop never exits, so deferred
+				// closes would pile up forever.
 				watcher.Close()
 				break
 			}

@@ -22,8 +22,24 @@ const (
 // ServeDNS implements the plugin.Handler interface. This method gets called when tailscale is used
 // in a Server.
 
-func (t *Tailscale) resolveA(domainName string, msg *dns.Msg) {
+// maxCNAMEDepth bounds CNAME chain following within the local zone so that a
+// misconfigured tag like `tag:cname-X` pointing at a name that resolves back
+// through itself cannot blow the goroutine stack.
+const maxCNAMEDepth = 8
 
+func (t *Tailscale) resolveA(domainName string, msg *dns.Msg) {
+	t.resolveAAt(domainName, msg, 0)
+}
+
+func (t *Tailscale) resolveAAAA(domainName string, msg *dns.Msg) {
+	t.resolveAAAAAt(domainName, msg, 0)
+}
+
+func (t *Tailscale) resolveCNAME(domainName string, msg *dns.Msg, lookupType int) {
+	t.resolveCNAMEAt(domainName, msg, lookupType, 0)
+}
+
+func (t *Tailscale) resolveAAt(domainName string, msg *dns.Msg, depth int) {
 	name := strings.Split(domainName, ".")[0]
 	entries, ok := t.entries[name]["A"]
 	if ok {
@@ -37,13 +53,11 @@ func (t *Tailscale) resolveA(domainName string, msg *dns.Msg) {
 	} else {
 		// There's no A record, so see if a CNAME exists
 		log.Debug("No v4 entry after lookup, so trying CNAME")
-		t.resolveCNAME(domainName, msg, TypeA)
+		t.resolveCNAMEAt(domainName, msg, TypeA, depth)
 	}
-
 }
 
-func (t *Tailscale) resolveAAAA(domainName string, msg *dns.Msg) {
-
+func (t *Tailscale) resolveAAAAAt(domainName string, msg *dns.Msg, depth int) {
 	name := strings.Split(domainName, ".")[0]
 	entries, ok := t.entries[name]["AAAA"]
 	if ok {
@@ -57,12 +71,15 @@ func (t *Tailscale) resolveAAAA(domainName string, msg *dns.Msg) {
 	} else {
 		// There's no AAAA record, so see if a CNAME exists
 		log.Debug("No v6 entry after lookup, so trying CNAME")
-		t.resolveCNAME(domainName, msg, TypeAAAA)
+		t.resolveCNAMEAt(domainName, msg, TypeAAAA, depth)
 	}
-
 }
 
-func (t *Tailscale) resolveCNAME(domainName string, msg *dns.Msg, lookupType int) {
+func (t *Tailscale) resolveCNAMEAt(domainName string, msg *dns.Msg, lookupType int, depth int) {
+	if depth >= maxCNAMEDepth {
+		log.Warningf("CNAME chain exceeded max depth (%d) at %s; refusing to recurse further", maxCNAMEDepth, domainName)
+		return
+	}
 
 	name := strings.Split(domainName, ".")[0]
 	targets, ok := t.entries[name]["CNAME"]
@@ -77,15 +94,14 @@ func (t *Tailscale) resolveCNAME(domainName string, msg *dns.Msg, lookupType int
 			// Resolve local zone A or AAAA records if they exist for the referenced target
 			if lookupType == TypeAll || lookupType == TypeA {
 				log.Debug("CNAME record found, lookup up local recursive A")
-				t.resolveA(target, msg)
+				t.resolveAAt(target, msg, depth+1)
 			}
 			if lookupType == TypeAll || lookupType == TypeAAAA {
 				log.Debug("CNAME record found, lookup up local recursive AAAA")
-				t.resolveAAAA(target, msg)
+				t.resolveAAAAAt(target, msg, depth+1)
 			}
 		}
 	}
-
 }
 
 func (t *Tailscale) handleNoRecords(ctx context.Context, w dns.ResponseWriter, r *dns.Msg, msg *dns.Msg) (int, error) {
@@ -111,9 +127,12 @@ func (t *Tailscale) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 
 	parts := strings.SplitN(name, ".", 2)
 
-	// Answer only in cases when the zone matches
-	if parts[1] == t.zone {
+	// Answer only in cases when the zone matches. The len check guards against
+	// malformed names with no separator (e.g. an empty Name or a bare label),
+	// which would otherwise panic on parts[1].
+	if len(parts) == 2 && parts[1] == t.zone {
 		t.mu.RLock()
+		defer t.mu.RUnlock()
 		switch r.Question[0].Qtype {
 		case dns.TypeA:
 			log.Debug("Handling A record lookup")
@@ -127,7 +146,6 @@ func (t *Tailscale) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 			log.Debug("Handling CNAME record lookup")
 			t.resolveCNAME(name, &msg, TypeAll)
 		}
-		defer t.mu.RUnlock()
 	}
 
 	if len(msg.Answer) == 0 {
