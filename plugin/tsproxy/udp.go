@@ -5,24 +5,30 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
+	"sync/atomic"
 	"time"
 )
 
 type UdpProxy struct {
-	srcPort int
-	dst     string
-	quit    chan struct{}
+	srcPort    int
+	dst        string
+	quit       chan struct{}
+	protocol   string
+	listenPort string
 
 	downstream downstreamProxy
-	upstream   map[string]upstreamProxy
+	upstream   map[string]*upstreamProxy
 }
 
-func NewUdpProxy(srcPort int, dstAddr string, dstPort int) *UdpProxy {
+func NewUdpProxy(protocol string, srcPort int, dstAddr string, dstPort int) *UdpProxy {
 	var proxy UdpProxy
 
 	proxy.srcPort = srcPort
 	proxy.dst = fmt.Sprintf("%s:%d", dstAddr, dstPort)
 	proxy.quit = make(chan struct{})
+	proxy.protocol = protocol
+	proxy.listenPort = strconv.Itoa(srcPort)
 
 	udpLog.Infof("starting UDP proxy from local port %d to %s", proxy.srcPort, proxy.dst)
 
@@ -38,7 +44,7 @@ func (proxy *UdpProxy) serve() {
 	}
 
 	// prepare upstream
-	proxy.upstream = make(map[string]upstreamProxy)
+	proxy.upstream = make(map[string]*upstreamProxy)
 	defer func() {
 		for key, ch := range proxy.upstream {
 			ch.close()
@@ -101,14 +107,20 @@ func (proxy *UdpProxy) send(m msg) {
 			return
 		}
 
-		newUpstream := upstreamProxy{
+		newUpstream := &upstreamProxy{
 			toDownstream:      proxy.downstream.toDownstream,
 			toUpstream:        make(chan msg),
 			conn:              conn,
 			downstreamAddress: m.addr,
+			protocol:          proxy.protocol,
+			listenPort:        proxy.listenPort,
+			target:            proxy.dst,
 		}
 		newUpstream.start()
 		proxy.upstream[m.addr.String()] = newUpstream
+
+		connectionsCount.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.dst).Inc()
+		activeConnections.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.dst).Inc()
 
 		up = newUpstream
 	}
@@ -182,6 +194,13 @@ type upstreamProxy struct {
 	conn              *net.UDPConn
 	downstreamAddress *net.UDPAddr
 	lastUsed          time.Time
+
+	protocol   string
+	listenPort string
+	target     string
+	created    time.Time
+	bytesUp    atomic.Int64 // client -> target
+	bytesDown  atomic.Int64 // target -> client
 }
 
 func (proxy *upstreamProxy) reader() {
@@ -192,6 +211,8 @@ func (proxy *upstreamProxy) reader() {
 		buffer := make([]byte, 16*1024)
 		n, _, _, _, err := proxy.conn.ReadMsgUDP(buffer, nil)
 		if n > 0 {
+			proxy.bytesDown.Add(int64(n))
+			proxiedBytesCount.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.target, directionDown).Add(float64(n))
 			proxy.toDownstream <- msg{data: buffer[:n], addr: proxy.downstreamAddress}
 		}
 		if err != nil {
@@ -213,6 +234,10 @@ func (proxy *upstreamProxy) writer() {
 			return
 		case pkt := <-proxy.toUpstream:
 			n, _, err := proxy.conn.WriteMsgUDP(pkt.data, nil, nil)
+			if n > 0 {
+				proxy.bytesUp.Add(int64(n))
+				proxiedBytesCount.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.target, directionUp).Add(float64(n))
+			}
 			if n != len(pkt.data) {
 				udpLog.Errorf("wrote only %d out of %d bytes to upstream", n, len(pkt.data))
 			}
@@ -224,7 +249,9 @@ func (proxy *upstreamProxy) writer() {
 }
 
 func (proxy *upstreamProxy) start() {
-	proxy.lastUsed = time.Now()
+	now := time.Now()
+	proxy.lastUsed = now
+	proxy.created = now
 	proxy.quit = make(chan struct{})
 
 	go proxy.reader()
@@ -233,6 +260,11 @@ func (proxy *upstreamProxy) start() {
 
 func (proxy *upstreamProxy) close() {
 	close(proxy.quit)
+
+	activeConnections.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.target).Dec()
+	connectionDuration.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.target).Observe(time.Since(proxy.created).Seconds())
+	total := proxy.bytesUp.Load() + proxy.bytesDown.Load()
+	connectionBytes.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.target).Observe(float64(total))
 }
 
 func (proxy *UdpProxy) Close() {

@@ -70,7 +70,7 @@ func setup(c *caddy.Controller) error {
 					targetPort: int(tp),
 				})
 			default:
-				return fmt.Errorf("unexpected token " + c.Val())
+				return fmt.Errorf("unexpected token %s", c.Val())
 			}
 		}
 	}

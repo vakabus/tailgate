@@ -23,13 +23,13 @@ func (proxy *tsproxy) start(channels []channel) {
 		var p closeable
 		switch channel.protocol {
 		case "udp":
-			p = NewUdpProxy(channel.myPort, channel.target, channel.targetPort)
+			p = NewUdpProxy(channel.protocol, channel.myPort, channel.target, channel.targetPort)
 		case "tcp":
-			p = NewTcpProxy(channel.myPort, channel.target, channel.targetPort)
+			p = NewTcpProxy(channel.protocol, channel.myPort, channel.target, channel.targetPort)
 		case "tcp_proxy":
-			p = NewTcpProxyProxy(channel.myPort, channel.target, channel.targetPort)
+			p = NewTcpProxyProxy(channel.protocol, channel.myPort, channel.target, channel.targetPort)
 		case "https_redirect":
-			p = NewHttpsRedirect(channel.myPort, channel.targetPort)
+			p = NewHttpsRedirect(channel.protocol, channel.myPort, channel.targetPort)
 		default:
 			panic("Unknown protocol for tsproxy: " + channel.protocol)
 		}

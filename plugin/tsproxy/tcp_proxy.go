@@ -3,6 +3,7 @@ package tsproxy
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -10,13 +11,15 @@ import (
 )
 
 type TcpProxyProxy struct {
-	listener net.Listener
-	wg       sync.WaitGroup
-	quit     chan interface{}
-	dst      string
+	listener   net.Listener
+	wg         sync.WaitGroup
+	quit       chan interface{}
+	dst        string
+	protocol   string
+	listenPort string
 }
 
-func NewTcpProxyProxy(srcPort int, dstAddr string, dstPort int) *TcpProxyProxy {
+func NewTcpProxyProxy(protocol string, srcPort int, dstAddr string, dstPort int) *TcpProxyProxy {
 	var proxy TcpProxyProxy
 
 	listener, err := reuseport.Listen("tcp", fmt.Sprintf(":%d", srcPort))
@@ -28,6 +31,8 @@ func NewTcpProxyProxy(srcPort int, dstAddr string, dstPort int) *TcpProxyProxy {
 	proxy.wg.Add(1)
 	proxy.dst = fmt.Sprintf("%s:%d", dstAddr, dstPort)
 	proxy.quit = make(chan interface{})
+	proxy.protocol = protocol
+	proxy.listenPort = strconv.Itoa(srcPort)
 
 	tcpProxyLog.Infof("starting TCP+PROXY proxy from local port %d to %s", srcPort, proxy.dst)
 
@@ -48,6 +53,8 @@ func (proxy *TcpProxyProxy) serve() {
 				tcpProxyLog.Errorf("accept error: %v", err)
 			}
 		} else {
+			connectionsCount.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.dst).Inc()
+			activeConnections.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.dst).Inc()
 			proxy.wg.Add(1)
 			go func() {
 				proxy.handleConnection(conn)
@@ -66,6 +73,12 @@ func (proxy *TcpProxyProxy) Close() {
 
 func (proxy *TcpProxyProxy) handleConnection(downstream net.Conn) {
 	defer downstream.Close()
+
+	start := time.Now()
+	defer func() {
+		activeConnections.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.dst).Dec()
+		connectionDuration.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.dst).Observe(time.Since(start).Seconds())
+	}()
 
 	var upstream net.Conn
 	var err error
@@ -95,10 +108,11 @@ func (proxy *TcpProxyProxy) handleConnection(downstream net.Conn) {
 	closerChannel := make(chan struct{})
 	defer close(closerChannel)
 
+	var up, down int64
 	var iowg sync.WaitGroup
 	iowg.Add(2)
-	go copy(&iowg, closerChannel, upstream, downstream)
-	go copy(&iowg, closerChannel, downstream, upstream)
+	go copy(&iowg, closerChannel, upstream, downstream, &up)   // client -> target
+	go copy(&iowg, closerChannel, downstream, upstream, &down) // target -> client
 
 	// Wait until one of:
 	//  - one thread ends
@@ -115,5 +129,6 @@ func (proxy *TcpProxyProxy) handleConnection(downstream net.Conn) {
 
 	// wait for both copy threads to finish
 	iowg.Wait()
+	recordBytes(proxy.protocol, proxy.listenPort, proxy.dst, up, down)
 	tcpProxyLog.Debugf("connection from %s closed", downstream.RemoteAddr().String())
 }

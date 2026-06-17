@@ -3,6 +3,7 @@ package tsproxy
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/coredns/coredns/plugin/pkg/reuseport"
 )
@@ -11,7 +12,7 @@ type HttpsRedirect struct {
 	server *http.Server
 }
 
-func NewHttpsRedirect(srcPort int, targetPort int) *HttpsRedirect {
+func NewHttpsRedirect(protocol string, srcPort int, targetPort int) *HttpsRedirect {
 	redirect := &HttpsRedirect{}
 
 	listener, err := reuseport.Listen("tcp", fmt.Sprintf(":%d", srcPort))
@@ -19,8 +20,10 @@ func NewHttpsRedirect(srcPort int, targetPort int) *HttpsRedirect {
 		panic(err)
 	}
 
+	listenPort := strconv.Itoa(srcPort)
 	redirect.server = &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			connectionsCount.WithLabelValues(protocol, listenPort, "").Inc()
 			host := r.Host
 			if targetPort != 443 {
 				host = fmt.Sprintf("%s:%d", r.Host, targetPort)
