@@ -11,6 +11,11 @@ import (
 	"github.com/coredns/coredns/plugin/pkg/reuseport"
 )
 
+// tcpDrainTimeout is how long the still-open half of a connection is given to
+// finish after the other half closes, before it is force-closed via a deadline.
+// It is a var (not a const) so tests can shorten it.
+var tcpDrainTimeout = 90 * time.Second
+
 type TcpProxy struct {
 	listener   net.Listener
 	wg         sync.WaitGroup
@@ -111,10 +116,10 @@ func (proxy *TcpProxy) handleConnection(downstream net.Conn) {
 	case <-proxy.quit:
 	}
 
-	// and then close the connection in 90 seconds also for the other side, if they don't close it themselves
+	// and then close the connection after the drain timeout also for the other side, if they don't close it themselves
 	now := time.Now()
-	downstream.SetDeadline(now.Add(90 * time.Second))
-	upstream.SetDeadline(now.Add(90 * time.Second))
+	downstream.SetDeadline(now.Add(tcpDrainTimeout))
+	upstream.SetDeadline(now.Add(tcpDrainTimeout))
 
 	// wait for both copy threads to finish
 	iowg.Wait()

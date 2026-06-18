@@ -122,10 +122,10 @@ func (proxy *TcpProxyProxy) handleConnection(downstream net.Conn) {
 	case <-proxy.quit:
 	}
 
-	// and then close the connection in 90 seconds also for the other side, if they don't close it themselves
+	// and then close the connection after the drain timeout also for the other side, if they don't close it themselves
 	now := time.Now()
-	downstream.SetDeadline(now.Add(90 * time.Second))
-	upstream.SetDeadline(now.Add(90 * time.Second))
+	downstream.SetDeadline(now.Add(tcpDrainTimeout))
+	upstream.SetDeadline(now.Add(tcpDrainTimeout))
 
 	// wait for both copy threads to finish
 	iowg.Wait()

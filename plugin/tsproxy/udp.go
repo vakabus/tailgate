@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+// udpIdleTimeout is how long a UDP session may stay idle before it is garbage
+// collected, and udpGCInterval is how often the GC sweep runs.
+const (
+	udpIdleTimeout = 90 * time.Second
+	udpGCInterval  = 90 * time.Second
+)
+
 type UdpProxy struct {
 	srcPort    int
 	dst        string
@@ -17,11 +24,19 @@ type UdpProxy struct {
 	protocol   string
 	listenPort string
 
+	// idleTimeout/gcInterval are configurable so tests can exercise session GC
+	// without waiting for the production 90s timeout. NewUdpProxy defaults them.
+	idleTimeout time.Duration
+	gcInterval  time.Duration
+
 	downstream downstreamProxy
 	upstream   map[string]*upstreamProxy
 }
 
-func NewUdpProxy(protocol string, srcPort int, dstAddr string, dstPort int) *UdpProxy {
+// newUdpProxy builds an unstarted UdpProxy with default settings. It is split
+// from NewUdpProxy so tests can tweak fields (e.g. idleTimeout/gcInterval)
+// before serve() reads them.
+func newUdpProxy(protocol string, srcPort int, dstAddr string, dstPort int) *UdpProxy {
 	var proxy UdpProxy
 
 	proxy.srcPort = srcPort
@@ -29,11 +44,19 @@ func NewUdpProxy(protocol string, srcPort int, dstAddr string, dstPort int) *Udp
 	proxy.quit = make(chan struct{})
 	proxy.protocol = protocol
 	proxy.listenPort = strconv.Itoa(srcPort)
+	proxy.idleTimeout = udpIdleTimeout
+	proxy.gcInterval = udpGCInterval
+
+	return &proxy
+}
+
+func NewUdpProxy(protocol string, srcPort int, dstAddr string, dstPort int) *UdpProxy {
+	proxy := newUdpProxy(protocol, srcPort, dstAddr, dstPort)
 
 	udpLog.Infof("starting UDP proxy from local port %d to %s", proxy.srcPort, proxy.dst)
 
 	go proxy.serve()
-	return &proxy
+	return proxy
 }
 
 func (proxy *UdpProxy) serve() {
@@ -61,15 +84,16 @@ func (proxy *UdpProxy) serve() {
 
 	// prepare upstream gc
 	cleanupUpstream := func(now time.Time) {
-		deadline := now.Add(-90 * time.Second)
+		deadline := now.Add(-proxy.idleTimeout)
 		for key, ch := range proxy.upstream {
-			if ch.lastUsed.Before(deadline) {
+			if time.Unix(0, ch.lastUsed.Load()).Before(deadline) {
 				ch.close()
 				delete(proxy.upstream, key)
 			}
 		}
 	}
-	gcTicker := time.NewTicker(90 * time.Second)
+	gcTicker := time.NewTicker(proxy.gcInterval)
+	defer gcTicker.Stop()
 
 	// start main loop
 	for {
@@ -193,7 +217,7 @@ type upstreamProxy struct {
 	quit              chan struct{}
 	conn              *net.UDPConn
 	downstreamAddress *net.UDPAddr
-	lastUsed          time.Time
+	lastUsed          atomic.Int64 // unix-nanos; accessed concurrently by reader/writer/GC
 
 	protocol   string
 	listenPort string
@@ -207,7 +231,7 @@ func (proxy *upstreamProxy) reader() {
 	defer proxy.conn.Close()
 
 	for {
-		proxy.lastUsed = time.Now()
+		proxy.lastUsed.Store(time.Now().UnixNano())
 		buffer := make([]byte, 16*1024)
 		n, _, _, _, err := proxy.conn.ReadMsgUDP(buffer, nil)
 		if n > 0 {
@@ -226,7 +250,7 @@ func (proxy *upstreamProxy) reader() {
 
 func (proxy *upstreamProxy) writer() {
 	for {
-		proxy.lastUsed = time.Now()
+		proxy.lastUsed.Store(time.Now().UnixNano())
 
 		select {
 		case <-proxy.quit:
@@ -250,7 +274,7 @@ func (proxy *upstreamProxy) writer() {
 
 func (proxy *upstreamProxy) start() {
 	now := time.Now()
-	proxy.lastUsed = now
+	proxy.lastUsed.Store(now.UnixNano())
 	proxy.created = now
 	proxy.quit = make(chan struct{})
 

@@ -7,7 +7,21 @@ buildGoModule {
   src = lib.cleanSource ../.;
   subPackages = [ "." ];
 
-  vendorHash = "sha256-ZdrtsSsMXDO+AJKOudKUkJ1SiMl9QFhdMOElcrB6ztw=";
+  vendorHash = "sha256-UnW/I6QXUIRb1A0W06Vxzq4cn8bZjbrIcQfWFC2d48s=";
+
+  # Run the tests for our custom plugins as part of the build. Upstream CoreDNS
+  # components are assumed tested upstream, so we only check our additions.
+  # -race needs cgo; the stdenv already provides a C compiler.
+  doCheck = true;
+  env.CGO_ENABLED = "1";
+  checkPhase = ''
+    runHook preCheck
+    go test -race -count=1 \
+      ./plugin/tsproxy/... \
+      ./plugin/tailscale/... \
+      ./plugin/tsnames/...
+    runHook postCheck
+  '';
 
   postInstall = ''
     if [ -e "$out/bin/coredns" ] && [ ! -e "$out/bin/tailgate" ]; then
