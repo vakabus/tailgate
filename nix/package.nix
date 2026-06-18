@@ -7,7 +7,7 @@ buildGoModule {
   src = lib.cleanSource ../.;
   subPackages = [ "." ];
 
-  vendorHash = "sha256-UnW/I6QXUIRb1A0W06Vxzq4cn8bZjbrIcQfWFC2d48s=";
+  vendorHash = "sha256-lZWVkysaimG4yWt5vsEXo2rIJfHSk9XEANTEJNnrzXM=";
 
   # Run the tests for our custom plugins as part of the build. Upstream CoreDNS
   # components are assumed tested upstream, so we only check our additions.
