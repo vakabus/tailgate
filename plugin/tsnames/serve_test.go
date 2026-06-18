@@ -11,6 +11,7 @@ import (
 	"github.com/coredns/coredns/plugin/pkg/dnstest"
 	"github.com/coredns/coredns/plugin/test"
 	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func newTS() Tailscale {
@@ -70,12 +71,16 @@ func TestServeDNSFallback(t *testing.T) {
 	// Match, next plugin configured.
 	msg.SetQuestion("test1.example.com", dns.TypeA)
 	w := dnstest.NewRecorder(&test.ResponseWriter{})
+	successBefore := testutil.ToFloat64(requestsTotal.WithLabelValues("example.com", "A", "success"))
 	resp, err = ts.ServeDNS(context.Background(), w, &msg)
 	if want, got := dns.RcodeSuccess, resp; got != want {
 		t.Fatalf("want response code %d, got %d", want, got)
 	}
 	if want, got := net.ParseIP("127.0.0.1"), w.Msg.Answer[0].(*dns.A).A; !got.Equal(want) {
 		t.Errorf("want %s, got: %s", want, got)
+	}
+	if got := testutil.ToFloat64(requestsTotal.WithLabelValues("example.com", "A", "success")); got != successBefore+1 {
+		t.Errorf("requestsTotal success = %v, want %v", got, successBefore+1)
 	}
 
 	// No match, next plugin configured.
@@ -100,6 +105,7 @@ func TestServeDNSNoFallback(t *testing.T) {
 	// No match
 	var msg dns.Msg
 	msg.SetQuestion("test3.example.com", dns.TypeA)
+	nxdomainBefore := testutil.ToFloat64(requestsTotal.WithLabelValues("example.com", "A", "nxdomain"))
 	resp, err := ts.ServeDNS(context.Background(), dnstest.NewRecorder(&test.ResponseWriter{}), &msg)
 	if err != nil {
 		t.Fatal("unexpected error")
@@ -107,16 +113,23 @@ func TestServeDNSNoFallback(t *testing.T) {
 	if want, got := dns.RcodeNameError, resp; got != want {
 		t.Fatalf("want response code %d, got %d", want, got)
 	}
+	if got := testutil.ToFloat64(requestsTotal.WithLabelValues("example.com", "A", "nxdomain")); got != nxdomainBefore+1 {
+		t.Errorf("requestsTotal nxd = %v, want %v", got, nxdomainBefore+1)
+	}
 
 	// Match
 	msg.SetQuestion("test1.example.com", dns.TypeA)
 	w := dnstest.NewRecorder(&test.ResponseWriter{})
+	successBefore := testutil.ToFloat64(requestsTotal.WithLabelValues("example.com", "A", "success"))
 	resp, err = ts.ServeDNS(context.Background(), w, &msg)
 	if want, got := dns.RcodeSuccess, resp; got != want {
 		t.Fatalf("want response code %d, got %d", want, got)
 	}
 	if want, got := net.ParseIP("127.0.0.1"), w.Msg.Answer[0].(*dns.A).A; !got.Equal(want) {
 		t.Errorf("want %s, got: %s", want, got)
+	}
+	if got := testutil.ToFloat64(requestsTotal.WithLabelValues("example.com", "A", "success")); got != successBefore+1 {
+		t.Errorf("requestsTotal success = %v, want %v", got, successBefore+1)
 	}
 
 }

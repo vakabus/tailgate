@@ -2,7 +2,7 @@
 
 buildGoModule {
   pname = "tailgate";
-  version = "unstable-2026-02-07";
+  version = "unstable-2026-06-18";
 
   src = lib.cleanSource ../.;
   subPackages = [ "." ];

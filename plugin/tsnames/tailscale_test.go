@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"tailscale.com/tailcfg"
 	"tailscale.com/types/netmap"
 )
@@ -73,6 +74,12 @@ func TestProcessNetMap(t *testing.T) {
 	if !cmp.Equal(ts.entries, want) {
 		t.Errorf("ts.entries = %v, want %v", ts.entries, want)
 	}
+	if got := testutil.ToFloat64(entriesGauge.WithLabelValues("example.com")); got != 3 {
+		t.Errorf("entries = %v, want 3", got)
+	}
+	if got := testutil.ToFloat64(netmapUpdatesTotal.WithLabelValues("example.com")); got != 1 {
+		t.Errorf("netmapUpdatesTotal = %v, want 1", got)
+	}
 
 	// now process another netmap with only self, and make sure peer is removed
 	ts.processNetMap(&netmap.NetworkMap{SelfNode: self})
@@ -87,5 +94,11 @@ func TestProcessNetMap(t *testing.T) {
 	}
 	if !cmp.Equal(ts.entries, want) {
 		t.Errorf("ts.entries = %v, want %v", ts.entries, want)
+	}
+	if got := testutil.ToFloat64(entriesGauge.WithLabelValues("example.com")); got != 2 {
+		t.Errorf("entries = %v, want 2", got)
+	}
+	if got := testutil.ToFloat64(netmapUpdatesTotal.WithLabelValues("example.com")); got != 2 {
+		t.Errorf("netmapUpdatesTotal = %v, want 2", got)
 	}
 }

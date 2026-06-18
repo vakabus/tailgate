@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/miekg/dns"
 
@@ -116,6 +117,9 @@ func (t *Tailscale) handleNoRecords(ctx context.Context, w dns.ResponseWriter, r
 }
 
 func (t *Tailscale) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
+	start := time.Now()
+	qtypeStr := dns.TypeToString[r.Question[0].Qtype]
+
 	log.Debugf("Received request for name: %v", r.Question[0].Name)
 	log.Debugf("Tailscale peers list has %d entries", len(t.entries))
 
@@ -149,11 +153,23 @@ func (t *Tailscale) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 	}
 
 	if len(msg.Answer) == 0 {
-		return t.handleNoRecords(ctx, w, r, &msg)
+		// Determine the result label before calling handleNoRecords so we can
+		// capture it regardless of the outcome.
+		result := "nxdomain"
+		if t.fall.Through(r.Question[0].Name) {
+			result = "fallthrough"
+		}
+		rcode, err := t.handleNoRecords(ctx, w, r, &msg)
+		if rcode == dns.RcodeServerFailure {
+			result = "servfail"
+		}
+		requestsTotal.WithLabelValues(t.zone, qtypeStr, result).Inc()
+		requestDuration.WithLabelValues(t.zone, qtypeStr).Observe(time.Since(start).Seconds())
+		return rcode, err
 	}
 
-	// Export metric with the server label set to the current server handling the request.
-	//requestCount.WithLabelValues(metrics.WithServer(ctx)).Inc()
+	requestsTotal.WithLabelValues(t.zone, qtypeStr, "success").Inc()
+	requestDuration.WithLabelValues(t.zone, qtypeStr).Observe(time.Since(start).Seconds())
 
 	log.Debugf("Writing response: %+v", msg)
 	w.WriteMsg(&msg)

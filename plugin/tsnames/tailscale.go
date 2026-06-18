@@ -123,5 +123,8 @@ func (t *Tailscale) processNetMap(nm *netmap.NetworkMap) {
 	t.mu.Lock()
 	t.entries = entries
 	t.mu.Unlock()
+
+	entriesGauge.WithLabelValues(t.zone).Set(float64(len(entries)))
+	netmapUpdatesTotal.WithLabelValues(t.zone).Inc()
 	log.Debugf("updated %d Tailscale entries", len(entries))
 }
