@@ -2,6 +2,7 @@ package tsproxy
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -25,8 +26,11 @@ func NewHttpsRedirect(protocol string, srcPort int, targetPort int) *HttpsRedire
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			connectionsCount.WithLabelValues(protocol, listenPort, "").Inc()
 			host := r.Host
+			if hostname, _, err := net.SplitHostPort(r.Host); err == nil {
+				host = hostname
+			}
 			if targetPort != 443 {
-				host = fmt.Sprintf("%s:%d", r.Host, targetPort)
+				host = fmt.Sprintf("%s:%d", host, targetPort)
 			}
 			target := "https://" + host + r.RequestURI
 			http.Redirect(w, r, target, http.StatusMovedPermanently)

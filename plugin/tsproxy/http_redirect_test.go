@@ -13,8 +13,8 @@ func TestHttpsRedirect(t *testing.T) {
 		targetPort int
 		wantHost   string // expected Location host (without scheme)
 	}{
-		{name: "default 443", targetPort: 443, wantHost: ""},       // host preserved as-is
-		{name: "custom port", targetPort: 8443, wantHost: ":8443"}, // port appended
+		{name: "default 443", targetPort: 443, wantHost: ""},       // no port appended for default HTTPS
+		{name: "custom port", targetPort: 8443, wantHost: ":8443"}, // target port appended
 	}
 
 	for _, tc := range tests {
@@ -40,7 +40,7 @@ func TestHttpsRedirect(t *testing.T) {
 				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusMovedPermanently)
 			}
 
-			host := fmt.Sprintf("127.0.0.1:%d", listenPort)
+			host := "127.0.0.1"
 			want := fmt.Sprintf("https://%s%s/foo?bar=1", host, tc.wantHost)
 			if loc := resp.Header.Get("Location"); loc != want {
 				t.Errorf("Location = %q, want %q", loc, want)
