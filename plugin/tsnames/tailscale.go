@@ -42,28 +42,66 @@ func (t *Tailscale) start() error {
 	return nil
 }
 
+// busBackoffMin/busBackoffMax bound the reconnect backoff for the IPN bus
+// watcher. tailscaled can accept a watch connection and then immediately drop
+// the stream (e.g. while it recomputes the netmap around a node change). An
+// unthrottled reconnect loop in that window spins a CPU core and allocates
+// connection/decode garbage faster than the GC can reclaim it; under a tight
+// cgroup memory limit the runtime then gets OOM-killed even though the live
+// heap stays small.
+const (
+	busBackoffMin = 1 * time.Second
+	busBackoffMax = 1 * time.Minute
+)
+
+// nextBusBackoff doubles the current backoff, saturating at busBackoffMax.
+func nextBusBackoff(cur time.Duration) time.Duration {
+	next := cur * 2
+	if next > busBackoffMax {
+		return busBackoffMax
+	}
+	return next
+}
+
 // watchIPNBus watches the Tailscale IPN Bus and updates DNS entries for any netmap update.
 // This function does not return. If it is unable to read from the IPN Bus, it will continue to retry.
 func (t *Tailscale) watchIPNBus() {
+	backoff := busBackoffMin
 	for {
 		watcher, err := ts.GetGlobalTailscale().Client.WatchIPNBus(context.Background(), ipn.NotifyInitialNetMap)
 		if err != nil {
-			log.Info("unable to read from Tailscale event bus, retrying in 1 minute")
-			time.Sleep(1 * time.Minute)
+			log.Warningf("unable to connect to Tailscale event bus: %v; retrying in %s", err, backoff)
+			busReconnectsTotal.WithLabelValues(t.zone).Inc()
+			time.Sleep(backoff)
+			backoff = nextBusBackoff(backoff)
 			continue
 		}
 
+		connectedAt := time.Now()
 		for {
 			n, err := watcher.Next()
 			if err != nil {
-				// If we're unable to read, then close watcher and reconnect.
-				// Don't `defer` this — the outer loop never exits, so deferred
-				// closes would pile up forever.
+				// Stream errored mid-flight. Close and reconnect — but the
+				// reconnect MUST back off (see busBackoffMin/Max): tailscaled
+				// can drop the stream the instant after accepting it, and an
+				// unthrottled retry here spins the CPU and exhausts memory.
+				// Don't `defer` the Close — the outer loop never exits, so
+				// deferred closes would pile up forever.
 				watcher.Close()
 				break
 			}
 			t.processNetMap(n.NetMap)
 		}
+
+		// A watcher that stayed up comfortably longer than the cap is healthy,
+		// so reset the backoff; rapid flapping keeps escalating it toward the cap.
+		if time.Since(connectedAt) > busBackoffMax {
+			backoff = busBackoffMin
+		}
+		log.Warningf("Tailscale event bus disconnected after %s; reconnecting in %s", time.Since(connectedAt).Round(time.Millisecond), backoff)
+		busReconnectsTotal.WithLabelValues(t.zone).Inc()
+		time.Sleep(backoff)
+		backoff = nextBusBackoff(backoff)
 	}
 }
 

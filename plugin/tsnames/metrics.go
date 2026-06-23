@@ -37,4 +37,11 @@ var (
 		Name:      "netmap_updates_total",
 		Help:      "Counter of Tailscale netmap updates processed.",
 	}, []string{"zone"})
+
+	busReconnectsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: plugin.Namespace,
+		Subsystem: "tsnames",
+		Name:      "bus_reconnects_total",
+		Help:      "Counter of Tailscale IPN bus reconnects (connect failures or mid-stream errors). A rapidly climbing rate indicates a reconnect storm.",
+	}, []string{"zone"})
 )

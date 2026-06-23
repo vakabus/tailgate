@@ -3,12 +3,38 @@ package tailscale
 import (
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"tailscale.com/tailcfg"
 	"tailscale.com/types/netmap"
 )
+
+func TestNextBusBackoff(t *testing.T) {
+	// Starting from the minimum, the backoff doubles each step and then
+	// saturates at the cap — it must never exceed busBackoffMax, otherwise a
+	// reconnect storm would not be throttled.
+	cur := busBackoffMin
+	want := []time.Duration{
+		2 * time.Second,
+		4 * time.Second,
+		8 * time.Second,
+		16 * time.Second,
+		32 * time.Second,
+		busBackoffMax, // 64s would exceed the 60s cap
+		busBackoffMax,
+	}
+	for i, w := range want {
+		cur = nextBusBackoff(cur)
+		if cur != w {
+			t.Fatalf("step %d: nextBusBackoff = %s, want %s", i, cur, w)
+		}
+	}
+	if got := nextBusBackoff(busBackoffMax); got != busBackoffMax {
+		t.Errorf("nextBusBackoff(max) = %s, want %s (must stay capped)", got, busBackoffMax)
+	}
+}
 
 func TestProcessNetMap(t *testing.T) {
 	ts := &Tailscale{zone: "example.com"}
