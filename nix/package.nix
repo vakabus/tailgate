@@ -2,12 +2,12 @@
 
 buildGoModule {
   pname = "tailgate";
-  version = "unstable-2026-06-23.1";
+  version = "unstable-2026-06-24";
 
   src = lib.cleanSource ../.;
   subPackages = [ "." ];
 
-  vendorHash = "sha256-qnm6Zrp2AQJOUFmtMnIf06Q9KzZaneiNZqsXFIP+870=";
+  vendorHash = "sha256-mqGrAYw84sse/IEQljngkdr4WcbGom5kl/yRikhKUMQ=";
 
   # Run the tests for our custom plugins as part of the build. Upstream CoreDNS
   # components are assumed tested upstream, so we only check our additions.

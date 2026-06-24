@@ -19,7 +19,7 @@ var tcpDrainTimeout = 90 * time.Second
 type TcpProxy struct {
 	listener   net.Listener
 	wg         sync.WaitGroup
-	quit       chan interface{}
+	quit       chan any
 	dst        string
 	protocol   string
 	listenPort string
@@ -36,7 +36,7 @@ func NewTcpProxy(protocol string, srcPort int, dstAddr string, dstPort int) *Tcp
 	proxy.listener = listener
 	proxy.wg.Add(1)
 	proxy.dst = fmt.Sprintf("%s:%d", dstAddr, dstPort)
-	proxy.quit = make(chan interface{})
+	proxy.quit = make(chan any)
 	proxy.protocol = protocol
 	proxy.listenPort = strconv.Itoa(srcPort)
 
@@ -63,11 +63,9 @@ func (proxy *TcpProxy) serve() {
 			// normal connection accepted, spawn a handler goroutine
 			connectionsCount.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.dst).Inc()
 			activeConnections.WithLabelValues(proxy.protocol, proxy.listenPort, proxy.dst).Inc()
-			proxy.wg.Add(1)
-			go func() {
+			proxy.wg.Go(func() {
 				proxy.handleConnection(conn)
-				proxy.wg.Done()
-			}()
+			})
 			tcpLog.Debugf("incomming connection from '%s' will be proxied to '%s'", conn.LocalAddr().String(), conn.RemoteAddr().String())
 		}
 	}

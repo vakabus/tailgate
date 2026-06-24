@@ -10,12 +10,12 @@ import (
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/pkg/dnstest"
 	"github.com/coredns/coredns/plugin/test"
+
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func newTS() Tailscale {
-
 	return Tailscale{
 		zone: "example.com",
 		entries: map[string]map[string][]string{
@@ -55,7 +55,7 @@ func TestServeDNSFallback(t *testing.T) {
 		t.Fatalf("want response code %d, got %d", want, got)
 	}
 
-	ts.next = plugin.HandlerFunc(func(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
+	ts.next = plugin.HandlerFunc(func(_ context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
 		msg := dns.Msg{}
 		msg.SetReply(r)
 		msg.Answer = append(msg.Answer, &dns.A{
@@ -72,7 +72,7 @@ func TestServeDNSFallback(t *testing.T) {
 	msg.SetQuestion("test1.example.com", dns.TypeA)
 	w := dnstest.NewRecorder(&test.ResponseWriter{})
 	successBefore := testutil.ToFloat64(requestsTotal.WithLabelValues("example.com", "A", "success"))
-	resp, err = ts.ServeDNS(context.Background(), w, &msg)
+	resp, _ = ts.ServeDNS(context.Background(), w, &msg)
 	if want, got := dns.RcodeSuccess, resp; got != want {
 		t.Fatalf("want response code %d, got %d", want, got)
 	}
@@ -121,7 +121,7 @@ func TestServeDNSNoFallback(t *testing.T) {
 	msg.SetQuestion("test1.example.com", dns.TypeA)
 	w := dnstest.NewRecorder(&test.ResponseWriter{})
 	successBefore := testutil.ToFloat64(requestsTotal.WithLabelValues("example.com", "A", "success"))
-	resp, err = ts.ServeDNS(context.Background(), w, &msg)
+	resp, _ = ts.ServeDNS(context.Background(), w, &msg)
 	if want, got := dns.RcodeSuccess, resp; got != want {
 		t.Fatalf("want response code %d, got %d", want, got)
 	}
@@ -131,7 +131,6 @@ func TestServeDNSNoFallback(t *testing.T) {
 	if got := testutil.ToFloat64(requestsTotal.WithLabelValues("example.com", "A", "success")); got != successBefore+1 {
 		t.Errorf("requestsTotal success = %v, want %v", got, successBefore+1)
 	}
-
 }
 
 func TestResolveA(t *testing.T) {
@@ -150,7 +149,6 @@ func TestResolveA(t *testing.T) {
 	} else {
 		t.Errorf("Expected AAAA return RR value type")
 	}
-
 }
 
 func TestResolveAAAA(t *testing.T) {
@@ -169,7 +167,6 @@ func TestResolveAAAA(t *testing.T) {
 	} else {
 		t.Errorf("Expected AAAA return RR value")
 	}
-
 }
 
 func TestResolveCNAME(t *testing.T) {
@@ -185,9 +182,7 @@ func TestResolveCNAME(t *testing.T) {
 	var as []string
 	var aaaas []string
 	for _, rr := range msg.Answer {
-
 		switch rec := rr.(type) {
-
 		case *dns.CNAME:
 			cnames = append(cnames, rec.Target)
 
@@ -197,7 +192,6 @@ func TestResolveCNAME(t *testing.T) {
 		case *dns.AAAA:
 			aaaas = append(aaaas, rec.AAAA.String())
 		}
-
 	}
 
 	sort.Strings(cnames)
@@ -205,7 +199,6 @@ func TestResolveCNAME(t *testing.T) {
 	testEquals(t, "CNAME record", []string{"test2-1.example.com", "test2-2.example.com"}, cnames)
 	testEquals(t, "A record", []string{"127.0.0.1", "127.0.0.1"}, as)
 	testEquals(t, "AAAA record", []string{"::1", "::1"}, aaaas)
-
 }
 
 func TestResolveAIsCNAME(t *testing.T) {
@@ -220,17 +213,13 @@ func TestResolveAIsCNAME(t *testing.T) {
 	var cnames []string
 	var as []string
 	for _, rr := range msg.Answer {
-
 		switch rec := rr.(type) {
-
 		case *dns.CNAME:
 			cnames = append(cnames, rec.Target)
 
 		case *dns.A:
 			as = append(as, rec.A.String())
-
 		}
-
 	}
 
 	sort.Strings(cnames)
@@ -251,17 +240,13 @@ func TestResolveAAAAIsCNAME(t *testing.T) {
 	var cnames []string
 	var aaaas []string
 	for _, rr := range msg.Answer {
-
 		switch rec := rr.(type) {
-
 		case *dns.CNAME:
 			cnames = append(cnames, rec.Target)
 
 		case *dns.AAAA:
 			aaaas = append(aaaas, rec.AAAA.String())
-
 		}
-
 	}
 
 	sort.Strings(cnames)
@@ -301,7 +286,7 @@ func TestResolveCNAMECycle(t *testing.T) {
 
 // TestServeDNSMalformedName ensures a query Name with no separator does not
 // panic on parts[1] index-out-of-bounds.
-func TestServeDNSMalformedName(t *testing.T) {
+func TestServeDNSMalformedName(_ *testing.T) {
 	ts := newTS()
 	ts.fall.SetZonesFromArgs(nil)
 
@@ -313,10 +298,9 @@ func TestServeDNSMalformedName(t *testing.T) {
 	}
 }
 
-func testEquals(t *testing.T, msg string, expected interface{}, received interface{}) {
-
+func testEquals(t *testing.T, msg string, expected any, received any) {
+	t.Helper()
 	if !reflect.DeepEqual(expected, received) {
 		t.Errorf("Expected %s %s: received %s", msg, expected, received)
 	}
-
 }

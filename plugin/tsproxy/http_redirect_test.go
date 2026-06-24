@@ -57,7 +57,7 @@ func getWithRetry(t *testing.T, client *http.Client, url string) *http.Response 
 	t.Helper()
 	var resp *http.Response
 	var err error
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		resp, err = client.Get(url)
 		if err == nil {
 			return resp

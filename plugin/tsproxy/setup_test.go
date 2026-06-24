@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/coredns/caddy"
+
 	"github.com/google/go-cmp/cmp"
 )
 

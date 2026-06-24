@@ -1,21 +1,21 @@
 package tailscale
 
-import "tailscale.com/client/tailscale"
+import "tailscale.com/client/local"
 
 type TailscalePlugin struct {
-	Client *tailscale.LocalClient
+	Client *local.Client
 }
 
 func NewTailscalePlugin() *TailscalePlugin {
 	return &TailscalePlugin{
-		Client: &tailscale.LocalClient{},
+		Client: &local.Client{},
 	}
 }
 
 // Name implements plugin.Handler.
 func (b *TailscalePlugin) Name() string { return "tailscale" }
 
-var global *TailscalePlugin = nil
+var global *TailscalePlugin
 
 func GetGlobalTailscale() *TailscalePlugin {
 	return global

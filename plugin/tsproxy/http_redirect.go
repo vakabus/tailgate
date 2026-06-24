@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/coredns/coredns/plugin/pkg/reuseport"
 )
@@ -23,6 +24,7 @@ func NewHttpsRedirect(protocol string, srcPort int, targetPort int) *HttpsRedire
 
 	listenPort := strconv.Itoa(srcPort)
 	redirect.server = &http.Server{
+		ReadHeaderTimeout: 5 * time.Second,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			connectionsCount.WithLabelValues(protocol, listenPort, "").Inc()
 			host := r.Host
@@ -33,7 +35,7 @@ func NewHttpsRedirect(protocol string, srcPort int, targetPort int) *HttpsRedire
 				host = fmt.Sprintf("%s:%d", host, targetPort)
 			}
 			target := "https://" + host + r.RequestURI
-			http.Redirect(w, r, target, http.StatusMovedPermanently)
+			http.Redirect(w, r, target, http.StatusMovedPermanently) //nolint:gosec // intentional: transparent HTTP→HTTPS protocol upgrade
 		}),
 	}
 

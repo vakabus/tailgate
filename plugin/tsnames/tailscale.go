@@ -9,11 +9,11 @@ import (
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/pkg/fall"
+	ts "github.com/coredns/coredns/plugin/tailscale"
+
 	"tailscale.com/ipn"
 	"tailscale.com/tailcfg"
 	"tailscale.com/types/netmap"
-
-	ts "github.com/coredns/coredns/plugin/tailscale"
 )
 
 type Tailscale struct {
@@ -111,7 +111,8 @@ func (t *Tailscale) processNetMap(nm *netmap.NetworkMap) {
 	}
 
 	log.Debugf("Self tags: %+v", nm.SelfNode.Tags().AsSlice())
-	nodes := []tailcfg.NodeView{nm.SelfNode}
+	nodes := make([]tailcfg.NodeView, 0, 1+len(nm.Peers))
+	nodes = append(nodes, nm.SelfNode)
 	nodes = append(nodes, nm.Peers...)
 
 	entries := map[string]map[string][]string{}
@@ -134,7 +135,6 @@ func (t *Tailscale) processNetMap(nm *netmap.NetworkMap) {
 
 		// Currently entry["A"/"AAAA"] will have max one element
 		for _, pfx := range node.Addresses().AsSlice() {
-
 			addr := pfx.Addr()
 			if addr.Is4() {
 				entry["A"] = append(entry["A"], addr.String())

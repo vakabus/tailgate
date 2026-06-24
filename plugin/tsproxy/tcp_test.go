@@ -89,7 +89,7 @@ func dialTCP(t *testing.T, port int) net.Conn {
 	var conn net.Conn
 	var err error
 	// The proxy's accept loop starts in a goroutine; retry briefly until it binds.
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		conn, err = net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 		if err == nil {
 			return conn

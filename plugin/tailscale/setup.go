@@ -8,6 +8,7 @@ import (
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
+
 	"tailscale.com/ipn/ipnstate"
 )
 
@@ -34,10 +35,10 @@ func setup(c *caddy.Controller) error {
 			log.Info("tailscale plugin initialized, running on " + status.Self.DNSName)
 			initialize(c, status)
 			break
-		} else {
-			log.Info("waiting for tailscale")
-			time.Sleep(1 * time.Second)
 		}
+
+		log.Info("waiting for tailscale")
+		time.Sleep(1 * time.Second)
 	}
 
 	return nil
@@ -47,7 +48,7 @@ func initialize(c *caddy.Controller, status *ipnstate.Status) {
 	config := dnsserver.GetConfig(c)
 
 	// collect all local addresses from tailscale
-	all := []string{}
+	all := make([]string, 0, len(status.TailscaleIPs))
 	for _, ip := range status.TailscaleIPs {
 		all = append(all, ip.String())
 	}

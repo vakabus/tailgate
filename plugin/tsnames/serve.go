@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/miekg/dns"
-
 	"github.com/coredns/coredns/plugin"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
+
+	"github.com/miekg/dns"
 )
 
 var log = clog.NewWithPlugin("tsnames")
@@ -109,11 +109,11 @@ func (t *Tailscale) handleNoRecords(ctx context.Context, w dns.ResponseWriter, r
 	if t.fall.Through(r.Question[0].Name) {
 		log.Debug("falling through")
 		return plugin.NextOrFailure(t.Name(), t.next, ctx, w, r)
-	} else {
-		log.Debugf("Writing response: %+v", msg)
-		w.WriteMsg(msg)
-		return dns.RcodeNameError, nil
 	}
+
+	log.Debugf("Writing response: %+v", msg)
+	w.WriteMsg(msg)
+	return dns.RcodeNameError, nil
 }
 
 func (t *Tailscale) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
