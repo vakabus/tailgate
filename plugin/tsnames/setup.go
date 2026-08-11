@@ -30,13 +30,14 @@ func setup(c *caddy.Controller) error {
 		}
 	}
 
+	// Populate the initial netmap before Caddy opens the DNS listeners. This
+	// prevents an early tailnet query from falling through to public DNS and
+	// being cached ahead of the dynamic Tailscale answer.
+	c.OnStartup(ts.start)
+
 	// Add the Plugin to CoreDNS, so Servers can use it in their plugin chain.
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		ts.next = next
-		if err := ts.start(); err != nil {
-			log.Error(err)
-			return nil
-		}
 		return ts
 	})
 

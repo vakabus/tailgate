@@ -135,21 +135,28 @@ func (t *Tailscale) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 	// malformed names with no separator (e.g. an empty Name or a bare label),
 	// which would otherwise panic on parts[1].
 	if len(parts) == 2 && parts[1] == t.zone {
-		t.mu.RLock()
-		defer t.mu.RUnlock()
-		switch r.Question[0].Qtype {
-		case dns.TypeA:
-			log.Debug("Handling A record lookup")
-			t.resolveA(name, &msg)
+		// Keep the lock scoped to the entries lookup. In particular, never hold
+		// it while falling through to another plugin: rewrite's internal DNS
+		// lookups re-enter this handler, and a pending netmap writer would then
+		// turn the recursive RLock into a deadlock.
+		func() {
+			t.mu.RLock()
+			defer t.mu.RUnlock()
 
-		case dns.TypeAAAA:
-			log.Debug("Handling AAAA record lookup")
-			t.resolveAAAA(name, &msg)
+			switch r.Question[0].Qtype {
+			case dns.TypeA:
+				log.Debug("Handling A record lookup")
+				t.resolveA(name, &msg)
 
-		case dns.TypeCNAME:
-			log.Debug("Handling CNAME record lookup")
-			t.resolveCNAME(name, &msg, TypeAll)
-		}
+			case dns.TypeAAAA:
+				log.Debug("Handling AAAA record lookup")
+				t.resolveAAAA(name, &msg)
+
+			case dns.TypeCNAME:
+				log.Debug("Handling CNAME record lookup")
+				t.resolveCNAME(name, &msg, TypeAll)
+			}
+		}()
 	}
 
 	if len(msg.Answer) == 0 {

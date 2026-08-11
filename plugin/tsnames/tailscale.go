@@ -25,6 +25,11 @@ type Tailscale struct {
 	entries map[string]map[string][]string
 }
 
+type ipnBusWatcher interface {
+	Next() (ipn.Notify, error)
+	Close() error
+}
+
 // Name implements the Handler interface.
 func (t *Tailscale) Name() string { return "tailscale" }
 
@@ -38,8 +43,39 @@ func (t *Tailscale) start() error {
 		return fmt.Errorf("tailscale not initialized, can't use 'tsnames' plugin")
 	}
 
-	go t.watchIPNBus()
+	watcher, err := t.openIPNBus(context.Background())
+	if err != nil {
+		return fmt.Errorf("connect to Tailscale event bus: %w", err)
+	}
+
+	// Do not let CoreDNS begin serving (and potentially cache public DNS
+	// answers for tailnet names) until the initial netmap is installed.
+	if err := t.waitForInitialNetMap(watcher); err != nil {
+		watcher.Close()
+		return err
+	}
+
+	go t.watchIPNBus(watcher)
 	return nil
+}
+
+func (t *Tailscale) openIPNBus(ctx context.Context) (ipnBusWatcher, error) {
+	return ts.GetGlobalTailscale().Client.WatchIPNBus(ctx, ipn.NotifyInitialNetMap)
+}
+
+func (t *Tailscale) waitForInitialNetMap(watcher ipnBusWatcher) error {
+	for {
+		n, err := watcher.Next()
+		if err != nil {
+			return fmt.Errorf("read initial Tailscale netmap: %w", err)
+		}
+		if n.NetMap == nil {
+			continue
+		}
+
+		t.processNetMap(n.NetMap)
+		return nil
+	}
 }
 
 // busBackoffMin/busBackoffMax bound the reconnect backoff for the IPN bus
@@ -65,16 +101,19 @@ func nextBusBackoff(cur time.Duration) time.Duration {
 
 // watchIPNBus watches the Tailscale IPN Bus and updates DNS entries for any netmap update.
 // This function does not return. If it is unable to read from the IPN Bus, it will continue to retry.
-func (t *Tailscale) watchIPNBus() {
+func (t *Tailscale) watchIPNBus(watcher ipnBusWatcher) {
 	backoff := busBackoffMin
 	for {
-		watcher, err := ts.GetGlobalTailscale().Client.WatchIPNBus(context.Background(), ipn.NotifyInitialNetMap)
-		if err != nil {
-			log.Warningf("unable to connect to Tailscale event bus: %v; retrying in %s", err, backoff)
-			busReconnectsTotal.WithLabelValues(t.zone).Inc()
-			time.Sleep(backoff)
-			backoff = nextBusBackoff(backoff)
-			continue
+		if watcher == nil {
+			var err error
+			watcher, err = t.openIPNBus(context.Background())
+			if err != nil {
+				log.Warningf("unable to connect to Tailscale event bus: %v; retrying in %s", err, backoff)
+				busReconnectsTotal.WithLabelValues(t.zone).Inc()
+				time.Sleep(backoff)
+				backoff = nextBusBackoff(backoff)
+				continue
+			}
 		}
 
 		connectedAt := time.Now()
@@ -102,6 +141,7 @@ func (t *Tailscale) watchIPNBus() {
 		busReconnectsTotal.WithLabelValues(t.zone).Inc()
 		time.Sleep(backoff)
 		backoff = nextBusBackoff(backoff)
+		watcher = nil
 	}
 }
 

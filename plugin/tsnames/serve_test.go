@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/pkg/dnstest"
@@ -96,6 +97,40 @@ func TestServeDNSFallback(t *testing.T) {
 	}
 	if got := w.Msg.Answer[0].(*dns.A).A; !got.Equal(test3) {
 		t.Errorf("want %s, got: %s", test3, got)
+	}
+}
+
+func TestServeDNSReleasesReadLockBeforeFallthrough(t *testing.T) {
+	ts := newTS()
+	ts.fall.SetZonesFromArgs(nil)
+	ts.next = plugin.HandlerFunc(func(_ context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
+		// A topology update waiting for the write lock must be able to complete
+		// before downstream plugins perform an internal DNS lookup.
+		ts.mu.Lock()
+		ts.mu.Unlock()
+
+		msg := new(dns.Msg).SetReply(r)
+		if err := w.WriteMsg(msg); err != nil {
+			return dns.RcodeServerFailure, err
+		}
+		return dns.RcodeSuccess, nil
+	})
+
+	var msg dns.Msg
+	msg.SetQuestion("missing.example.com", dns.TypeA)
+	done := make(chan error, 1)
+	go func() {
+		_, err := ts.ServeDNS(context.Background(), dnstest.NewRecorder(&test.ResponseWriter{}), &msg)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ServeDNS() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ServeDNS deadlocked while downstream waited for the entries write lock")
 	}
 }
 
